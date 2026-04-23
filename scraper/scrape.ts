@@ -129,7 +129,9 @@ export async function scrapeImages(
   });
 
   await browser.close();
-  return images;
+  // Remove duplicatas preservando ordem
+  const uniqueImages = Array.from(new Set(images));
+  return uniqueImages;
 }
 
 // Exemplo de uso via CLI para ES module
