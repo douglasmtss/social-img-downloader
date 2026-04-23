@@ -1,6 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
+
 import { useState } from "react";
+import JSZip from "jszip";
 
 function isBase64(str: string) {
   return /^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,/.test(str);
@@ -27,11 +29,41 @@ async function downloadImage(url: string, filename: string) {
   URL.revokeObjectURL(blobUrl);
 }
 
+
 async function downloadBulk(urls: string[], prefix = "img") {
-  for (let i = 0; i < urls.length; i++) {
-    await downloadImage(urls[i], `${prefix}-${i + 1}`);
+  if (urls.length === 1) {
+    await downloadImage(urls[0], `${prefix}-1`);
+    return;
   }
+  // Se mais de uma imagem, baixa como zip
+  const zip = new JSZip();
+  const fetchAndAdd = async (url: string, idx: number) => {
+    let data: Blob;
+    let ext = "jpg";
+    if (isBase64(url)) {
+      // data:image/png;base64,...
+      const match = url.match(/^data:image\/(\w+);base64,(.*)$/);
+      if (match) {
+        ext = match[1];
+        data = await (await fetch(url)).blob();
+      } else {
+        data = await (await fetch(url)).blob();
+      }
+    } else {
+      const res = await fetch(url);
+      data = await res.blob();
+      const type = data.type.split("/")[1];
+      if (type) ext = type;
+    }
+    zip.file(`${prefix}-${idx + 1}.${ext}`, data);
+  };
+  await Promise.all(urls.map((url, i) => fetchAndAdd(url, i)));
+  const blob = await zip.generateAsync({ type: "blob" });
+  const blobUrl = URL.createObjectURL(blob);
+  downloadBlob(blobUrl, `${prefix}-imagens.zip`);
+  URL.revokeObjectURL(blobUrl);
 }
+
 
 async function fetchImages(url: string): Promise<string[]> {
   const res = await fetch("/api/scrape", {
@@ -45,10 +77,10 @@ async function fetchImages(url: string): Promise<string[]> {
 }
 
 export default function DownloadForm() {
-  const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [url, setUrl] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+  const [success, setSuccess] = useState<string>("");
   const [images, setImages] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
@@ -78,7 +110,7 @@ export default function DownloadForm() {
   };
 
   const toggleSelect = (idx: number) => {
-    setSelected(prev => {
+    setSelected((prev: Set<number>) => {
       const next = new Set(prev);
       if (next.has(idx)) next.delete(idx);
       else next.add(idx);
@@ -86,7 +118,7 @@ export default function DownloadForm() {
     });
   };
 
-  const selectAll = () => setSelected(new Set(images.map((_, i) => i)));
+  const selectAll = () => setSelected(new Set(images.map((_: string, i: number) => i)));
   const deselectAll = () => setSelected(new Set());
 
   const handleDownloadSelected = async () => {
@@ -126,7 +158,7 @@ export default function DownloadForm() {
             <button type="button" className="px-2 py-1 bg-blue-800 text-white rounded text-xs" onClick={handleDownloadAll}>Baixar todas</button>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {images.map((img, i) => (
+            {images.map((img: string, i: number) => (
               <div key={i} className={`relative flex flex-col items-center border rounded p-2 hover:shadow-lg transition bg-white dark:bg-zinc-800 ${selected.has(i) ? 'ring-2 ring-blue-600' : ''}`}>
                 <input
                   type="checkbox"
@@ -157,3 +189,4 @@ export default function DownloadForm() {
     </form>
   );
 }
+
