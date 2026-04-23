@@ -78,7 +78,7 @@ export async function scrapeImages(
     function isVisible(el: Element) {
       if (!(el instanceof HTMLElement)) return false;
       const style = window.getComputedStyle(el);
-      return style && style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null;
+      return style && style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null && style.opacity !== '0';
     }
     // Heurística para ignorar ícones e avatares
     function isProbablyContentImage(img: HTMLImageElement) {
@@ -93,8 +93,39 @@ export async function scrapeImages(
       // Permite imagens de perfil e conteúdo, desde que não sejam ícones
       return true;
     }
-    const imgs = Array.from(document.querySelectorAll('img'));
-    return imgs.filter(img => isVisible(img) && isProbablyContentImage(img as HTMLImageElement)).map(img => (img as HTMLImageElement).src);
+
+    // Busca imagens em toda a árvore DOM, inclusive em modais e overlays
+    function getAllImagesFromNode(node: Element | ShadowRoot): HTMLImageElement[] {
+      let imgs: HTMLImageElement[] = [];
+      if ((node as Element).nodeType === 1) {
+        if ((node as Element).tagName === 'IMG') imgs.push(node as HTMLImageElement);
+        // Busca em shadow roots
+        if ((node as Element).shadowRoot) {
+          imgs = imgs.concat(getAllImagesFromNode((node as Element).shadowRoot!));
+        }
+        // Busca recursiva em filhos
+        if ((node as Element).children) {
+          for (const child of (node as Element).children) {
+            imgs = imgs.concat(getAllImagesFromNode(child));
+          }
+        }
+      }
+      return imgs;
+    }
+    // Busca imagens em toda a página
+    let imgs: HTMLImageElement[] = getAllImagesFromNode(document.body);
+    // Busca imagens em modais/overlays visíveis
+    const modalSelectors = [
+      '[aria-modal="true"]', '[role="dialog"]', '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]', '[class*="portal"]', '[id*="modal"]', '[id*="popup"]', '[id*="overlay"]', '[id*="portal"]'
+    ];
+    for (const sel of modalSelectors) {
+      document.querySelectorAll(sel).forEach((modal: Element) => {
+        imgs = imgs.concat(getAllImagesFromNode(modal));
+      });
+    }
+    // Remove duplicatas
+    imgs = Array.from(new Set(imgs));
+    return imgs.filter((img: HTMLImageElement) => isVisible(img) && isProbablyContentImage(img)).map((img: HTMLImageElement) => img.src);
   });
 
   await browser.close();
