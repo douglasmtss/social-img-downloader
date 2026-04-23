@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "name": "social-img-downloader",
   "version": "0.1.0",
   "private": true,

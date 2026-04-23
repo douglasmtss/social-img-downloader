@@ -26,17 +26,39 @@ export async function scrapeImages(
   // Carrega a página alvo, tenta fechar popup antes de buscar imagens
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
   await wait(2000); // aguarda possíveis popups carregarem
+
+  // Tenta fechar overlays/modais do Instagram de forma mais agressiva
   try {
-    // Tenta clicar em botões de fechar modais comuns do Instagram e Facebook
-    // Instagram: <div role="dialog"> ... <div role="button" aria-label="Fechar">
-    const closeBtns = await page.$$('div[role="dialog"] [role="button"][aria-label="Fechar"], div[role="dialog"] [aria-label="Fechar"], div[role="dialog"] [aria-label="Close"]');
-    for (const btn of closeBtns) {
-      try {
-        await btn.click();
-        await wait(1000);
-      } catch {}
+    // Seletores comuns de botões de fechar em modais/overlays
+    const closeSelectors = [
+      'div[role="dialog"] [role="button"][aria-label*="Fechar"]',
+      'div[role="dialog"] [aria-label*="Fechar"]',
+      'div[role="dialog"] [role="button"][tabindex="0"]',
+      '[aria-modal="true"] [role="button"][aria-label*="Fechar"]',
+      '[aria-modal="true"] [role="button"][tabindex="0"]',
+      '[aria-modal="true"] [aria-label*="Fechar"]',
+      '[role="dialog"] [role="button"]',
+      '[role="dialog"] [tabindex="0"]',
+      '[aria-label*="Fechar"]',
+      '[aria-label*="Close"]',
+      '[data-testid*="close"]',
+      '[class*="close"]',
+      '[class*="Fechar"]',
+      '[class*="closeButton"]',
+    ];
+    for (const sel of closeSelectors) {
+      const btns = await page.$$(sel);
+      for (const btn of btns) {
+        try {
+          await btn.click();
+          await wait(1000);
+        } catch {}
+      }
     }
   } catch {}
+
+  // Após tentar fechar overlays, role e aguarde novamente
+  await wait(1000);
 
   // Rola a página até o final para carregar todas as imagens (scroll infinito)
   let previousHeight: number | undefined;
@@ -65,9 +87,10 @@ export async function scrapeImages(
       // Ignora imagens muito pequenas (ícones, avatares pequenos)
       if (w < 80 || h < 80) return false;
       // Ignora imagens SVG ou base64 pequenas
-      if (img.src.startsWith('data:image/svg') || (img.src.startsWith('data:image/') && w < 120 && h < 120)) return false;
-      // Ignora imagens de avatar pelo alt
+      if (img.src.startsWith('data:image/svg') || (img.src.startsWith('data/image/') && w < 120 && h < 120)) return false;
+      // Ignora imagens de avatar pelo alt, mas permite outros casos
       if (img.alt && img.alt.toLowerCase().includes('avatar')) return false;
+      // Permite imagens de perfil e conteúdo, desde que não sejam ícones
       return true;
     }
     const imgs = Array.from(document.querySelectorAll('img'));
@@ -78,8 +101,8 @@ export async function scrapeImages(
   return images;
 }
 
-// Exemplo de uso via CLI
-if (require.main === module) {
+// Exemplo de uso via CLI para ES module
+if (import.meta.url === `file://${process.argv[1]}`) {
   const [,, url, username, password] = process.argv;
   scrapeImages(url, { username, password }).then(imgs => {
     console.log(JSON.stringify(imgs, null, 2));
