@@ -9,10 +9,35 @@ export async function scrapeImages(
   url: string,
   options: ScrapeOptions = {}
 ): Promise<string[]> {
+    // Fecha modal do Instagram se aparecer (por classe e SVG)
+    try {
+      // Espera o modal aparecer
+      await page.waitForSelector('div[aria-modal="true"][role="dialog"]', { timeout: 8000 });
+      // Tenta clicar no botão de fechar pelo SVG com title="Fechar"
+      const closeBtn = await page.$('div[aria-modal="true"] [role="button"] svg[aria-label="Fechar"], div[aria-modal="true"] [role="button"] svg[title="Fechar"]');
+      if (closeBtn) {
+        await closeBtn.click();
+        await wait(1000);
+      } else {
+        // Alternativa: tenta clicar no primeiro botão role=button dentro do modal
+        const fallbackBtn = await page.$('div[aria-modal="true"] [role="button"]');
+        if (fallbackBtn) {
+          await fallbackBtn.click();
+          await wait(1000);
+        }
+      }
+    } catch {}
   const { username, password } = options;
-  const browser = await puppeteer.launch({ headless: true });
+  // Para debug, pode rodar com headless: false
+  const browser = await puppeteer.launch({ headless: false, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (compatible; SocialImgDownloader/1.0)');
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+  // Simula movimento do mouse para evitar bloqueios de automação
+  await page.mouse.move(100, 100);
+  await wait(500);
+  await page.mouse.move(200, 200);
+  await wait(500);
 
   // Se precisar logar, implemente aqui (exemplo para Facebook)
   if (username && password && url.includes('facebook.com')) {
@@ -23,109 +48,108 @@ export async function scrapeImages(
     await page.waitForNavigation({ waitUntil: 'networkidle2' });
   }
 
-  // Carrega a página alvo, tenta fechar popup antes de buscar imagens
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-  await wait(2000); // aguarda possíveis popups carregarem
 
-  // Tenta fechar overlays/modais do Instagram de forma mais agressiva
+  // Carrega a página alvo
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+  await wait(3000);
+
+  // Instagram: aguarda posts carregarem (divs dos posts)
   try {
-    // Seletores comuns de botões de fechar em modais/overlays
-    const closeSelectors = [
-      'div[role="dialog"] [role="button"][aria-label*="Fechar"]',
-      'div[role="dialog"] [aria-label*="Fechar"]',
-      'div[role="dialog"] [role="button"][tabindex="0"]',
-      '[aria-modal="true"] [role="button"][aria-label*="Fechar"]',
-      '[aria-modal="true"] [role="button"][tabindex="0"]',
-      '[aria-modal="true"] [aria-label*="Fechar"]',
-      '[role="dialog"] [role="button"]',
-      '[role="dialog"] [tabindex="0"]',
-      '[aria-label*="Fechar"]',
-      '[aria-label*="Close"]',
-      '[data-testid*="close"]',
-      '[class*="close"]',
-      '[class*="Fechar"]',
-      '[class*="closeButton"]',
-    ];
-    for (const sel of closeSelectors) {
-      const btns = await page.$$(sel);
-      for (const btn of btns) {
-        try {
-          await btn.click();
-          await wait(1000);
-        } catch {}
-      }
-    }
+    await page.waitForSelector('article img', { timeout: 20000 });
   } catch {}
 
-  // Após tentar fechar overlays, role e aguarde novamente
-  await wait(1000);
+  // Monitora elementos que aparecem após o carregamento inicial
+  // e fecha overlays/modais de forma recursiva até restar só o body principal
+  await page.exposeFunction('wait', wait);
+  await page.evaluate(async () => {
+    // Função para fechar overlays/modais recursivamente
+    async function closeOverlaysRecursively(maxDepth = 10) {
+      const closeSelectors = [
+        'div[role="dialog"] [role="button"][aria-label*="Fechar"]',
+        'div[role="dialog"] [aria-label*="Fechar"]',
+        'div[role="dialog"] [role="button"][tabindex="0"]',
+        '[aria-modal="true"] [role="button"][aria-label*="Fechar"]',
+        '[aria-modal="true"] [role="button"][tabindex="0"]',
+        '[aria-modal="true"] [aria-label*="Fechar"]',
+        '[role="dialog"] [role="button"]',
+        '[role="dialog"] [tabindex="0"]',
+        '[aria-label*="Fechar"]',
+        '[aria-label*="Close"]',
+        '[data-testid*="close"]',
+        '[class*="close"]',
+        '[class*="Fechar"]',
+        '[class*="closeButton"]',
+      ];
+      let closed = false;
+      for (const sel of closeSelectors) {
+        document.querySelectorAll(sel).forEach(btn => {
+          try {
+            (btn as HTMLElement).click();
+            closed = true;
+          } catch {}
+        });
+      }
+      // Remove overlays que cobrem o body
+      const overlaySelectors = [
+        '[aria-modal="true"]', '[role="dialog"]', '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]', '[class*="portal"]', '[id*="modal"]', '[id*="popup"]', '[id*="overlay"]', '[id*="portal"]'
+      ];
+      for (const sel of overlaySelectors) {
+        document.querySelectorAll(sel).forEach(el => {
+          // Só remove se estiver visível e cobrindo o body
+          if (el instanceof HTMLElement && el.offsetParent !== null) {
+            el.parentNode?.removeChild(el);
+            closed = true;
+          }
+        });
+      }
+      // Repete até não encontrar mais overlays ou atingir profundidade máxima
+      if (closed && maxDepth > 0) {
+        await new Promise(res => setTimeout(res, 500));
+        await closeOverlaysRecursively(maxDepth - 1);
+      }
+    }
+    await closeOverlaysRecursively();
+  });
 
-  // Rola a página até o final para carregar todas as imagens (scroll infinito)
+  // Rola a página até o final para carregar todas as imagens (scroll infinito mais longo)
   let previousHeight: number | undefined;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     previousHeight = await page.evaluate(() => document.body.scrollHeight);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await wait(2000);
+    await wait(2500);
     const newHeight = await page.evaluate(() => document.body.scrollHeight);
     if (newHeight === previousHeight) break;
   }
   await wait(3000);
 
 
-  // Extrai imagens relevantes ignorando ícones, avatares e imagens de background
-  const images: string[] = await page.evaluate(() => {
-    // Função para checar se o elemento está visível
-    function isVisible(el: Element) {
-      if (!(el instanceof HTMLElement)) return false;
-      const style = window.getComputedStyle(el);
-      return style && style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null && style.opacity !== '0';
-    }
-    // Heurística para ignorar ícones e avatares
-    function isProbablyContentImage(img: HTMLImageElement) {
-      const w = img.naturalWidth;
-      const h = img.naturalHeight;
-      // Ignora imagens muito pequenas (ícones, avatares pequenos)
-      if (w < 80 || h < 80) return false;
-      // Ignora imagens SVG ou base64 pequenas
-      if (img.src.startsWith('data:image/svg') || (img.src.startsWith('data/image/') && w < 120 && h < 120)) return false;
-      // Ignora imagens de avatar pelo alt, mas permite outros casos
-      if (img.alt && img.alt.toLowerCase().includes('avatar')) return false;
-      // Permite imagens de perfil e conteúdo, desde que não sejam ícones
-      return true;
-    }
 
-    // Busca imagens em toda a árvore DOM, inclusive em modais e overlays
-    function getAllImagesFromNode(node: Element | ShadowRoot): HTMLImageElement[] {
-      let imgs: HTMLImageElement[] = [];
-      if ((node as Element).nodeType === 1) {
-        if ((node as Element).tagName === 'IMG') imgs.push(node as HTMLImageElement);
-        // Busca em shadow roots
-        if ((node as Element).shadowRoot) {
-          imgs = imgs.concat(getAllImagesFromNode((node as Element).shadowRoot!));
-        }
-        // Busca recursiva em filhos
-        if ((node as Element).children) {
-          for (const child of (node as Element).children) {
-            imgs = imgs.concat(getAllImagesFromNode(child));
-          }
-        }
+  // Extrai imagens de posts do Instagram (img, srcset, background-image)
+  const images: string[] = await page.evaluate(() => {
+    // Extrai src e srcset de <img> visíveis em toda a página (não só <article>)
+    const imgSrcs: string[] = [];
+    document.querySelectorAll('img').forEach(img => {
+      if ((img as HTMLImageElement).src) imgSrcs.push((img as HTMLImageElement).src);
+      const srcset = (img as HTMLImageElement).srcset;
+      if (srcset) {
+        srcset.split(',').forEach(s => {
+          const url = s.trim().split(' ')[0];
+          if (url) imgSrcs.push(url);
+        });
       }
-      return imgs;
-    }
-    // Busca imagens em toda a página
-    let imgs: HTMLImageElement[] = getAllImagesFromNode(document.body);
-    // Busca imagens em modais/overlays visíveis
-    const modalSelectors = [
-      '[aria-modal="true"]', '[role="dialog"]', '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]', '[class*="portal"]', '[id*="modal"]', '[id*="popup"]', '[id*="overlay"]', '[id*="portal"]'
-    ];
-    for (const sel of modalSelectors) {
-      document.querySelectorAll(sel).forEach((modal: Element) => {
-        imgs = imgs.concat(getAllImagesFromNode(modal));
-      });
-    }
+    });
+    // Extrai background-image de todos os elementos
+    const bgImgs: string[] = [];
+    document.querySelectorAll('*').forEach(el => {
+      const style = window.getComputedStyle(el);
+      const bg = style.getPropertyValue('background-image');
+      if (bg && bg !== 'none') {
+        const matches = Array.from(bg.matchAll(/url\(['"]?([^'")]+)['"]?\)/g));
+        matches.forEach(m => bgImgs.push(m[1]));
+      }
+    });
     // Remove duplicatas
-    imgs = Array.from(new Set(imgs));
-    return imgs.filter((img: HTMLImageElement) => isVisible(img) && isProbablyContentImage(img)).map((img: HTMLImageElement) => img.src);
+    return Array.from(new Set([...imgSrcs, ...bgImgs]));
   });
 
   await browser.close();
