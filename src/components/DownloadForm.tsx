@@ -1,0 +1,159 @@
+/* eslint-disable @next/next/no-img-element */
+"use client";
+import { useState } from "react";
+
+function isBase64(str: string) {
+  return /^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,/.test(str);
+}
+
+function downloadBlob(dataUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function downloadImage(url: string, filename: string) {
+  if (isBase64(url)) {
+    downloadBlob(url, filename);
+    return;
+  }
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  downloadBlob(blobUrl, filename);
+  URL.revokeObjectURL(blobUrl);
+}
+
+async function downloadBulk(urls: string[], prefix = "img") {
+  for (let i = 0; i < urls.length; i++) {
+    await downloadImage(urls[i], `${prefix}-${i + 1}`);
+  }
+}
+
+async function fetchImages(url: string): Promise<string[]> {
+  const res = await fetch("/api/scrape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erro ao buscar imagens.");
+  return data.images;
+}
+
+export default function DownloadForm() {
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    setImages([]);
+    setSelected(new Set());
+    setLoading(true);
+    if (!url.match(/^https?:\/\//)) {
+      setError("Insira uma URL válida.");
+      setLoading(false);
+      return;
+    }
+    try {
+      const imgs = await fetchImages(url);
+      // Remove duplicatas
+      const uniqueImgs = Array.from(new Set(imgs));
+      setImages(uniqueImgs);
+      setSuccess("Imagens encontradas:");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSelect = (idx: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelected(new Set(images.map((_, i) => i)));
+  const deselectAll = () => setSelected(new Set());
+
+  const handleDownloadSelected = async () => {
+    const sel = Array.from(selected).map(i => images[i]);
+    await downloadBulk(sel, "img");
+  };
+
+  const handleDownloadAll = async () => {
+    await downloadBulk(images, "img");
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-md">
+      <input
+        type="url"
+        placeholder="Cole o link aqui..."
+        value={url}
+        onChange={e => setUrl(e.target.value)}
+        className="border rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        required
+      />
+      <button
+        type="submit"
+        className="bg-blue-700 text-white rounded px-4 py-2 font-semibold hover:bg-blue-800 transition disabled:opacity-60"
+        disabled={loading}
+      >
+        {loading ? "Processando..." : "Baixar imagem"}
+      </button>
+      {error && <span className="text-red-600">{error}</span>}
+      {success && <span className="text-green-600">{success}</span>}
+      {images.length > 0 && (
+        <div className="flex flex-col gap-2 mt-4">
+          <div className="flex gap-2 mb-2">
+            <button type="button" className="px-2 py-1 bg-blue-600 text-white rounded text-xs" onClick={selectAll}>Selecionar tudo</button>
+            <button type="button" className="px-2 py-1 bg-gray-400 text-white rounded text-xs" onClick={deselectAll}>Limpar seleção</button>
+            <button type="button" className="px-2 py-1 bg-green-600 text-white rounded text-xs" onClick={handleDownloadSelected} disabled={selected.size === 0}>Baixar selecionadas</button>
+            <button type="button" className="px-2 py-1 bg-blue-800 text-white rounded text-xs" onClick={handleDownloadAll}>Baixar todas</button>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {images.map((img, i) => (
+              <div key={i} className={`relative flex flex-col items-center border rounded p-2 hover:shadow-lg transition bg-white dark:bg-zinc-800 ${selected.has(i) ? 'ring-2 ring-blue-600' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(i)}
+                  onChange={() => toggleSelect(i)}
+                  className="absolute top-2 left-2 z-10"
+                  aria-label="Selecionar imagem"
+                />
+                <img
+                  src={img}
+                  alt={`preview-${i}`}
+                  className="w-full h-32 object-contain mb-2 bg-zinc-100 dark:bg-zinc-900"
+                  onError={e => (e.currentTarget.style.display = 'none')}
+                />
+                <span className="text-xs break-all text-blue-700 underline mb-1">{img.slice(0, 60)}{img.length > 60 ? '...' : ''}</span>
+                <button
+                  type="button"
+                  className="px-2 py-1 bg-blue-700 text-white rounded text-xs mt-1"
+                  onClick={() => downloadImage(img, `img-${i + 1}`)}
+                >
+                  Baixar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
