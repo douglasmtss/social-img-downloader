@@ -87,6 +87,8 @@ export default function DownloadForm() {
   const [images, setImages] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [errored, setErrored] = useState<Set<number>>(new Set());
+  // Para retry automático
+  const [retries, setRetries] = useState<{ [key: number]: number }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,6 +96,8 @@ export default function DownloadForm() {
     setSuccess("");
     setImages([]);
     setSelected(new Set());
+    setErrored(new Set());
+    setRetries({});
     setLoading(true);
     if (!url.match(/^https?:\/\//)) {
       setError("Insira uma URL válida.");
@@ -102,8 +106,21 @@ export default function DownloadForm() {
     }
     try {
       const imgs = await fetchImages(url);
-      // Remove duplicatas
-      const uniqueImgs = Array.from(new Set(imgs));
+      // Remove duplicatas ignorando query strings
+      const seen = new Set<string>();
+      const uniqueImgs = imgs.filter((url) => {
+        // Para base64, considera o valor inteiro
+        if (url.startsWith('data:image')) {
+          if (seen.has(url)) return false;
+          seen.add(url);
+          return true;
+        }
+        // Remove query string para comparação
+        const base = url.split('?')[0];
+        if (seen.has(base)) return false;
+        seen.add(base);
+        return true;
+      });
       setImages(uniqueImgs);
       setSuccess("Imagens encontradas:");
     } catch (err) {
@@ -122,8 +139,21 @@ export default function DownloadForm() {
     });
   };
 
+  // Tenta recarregar a imagem até 2 vezes antes de marcar como erro
   const handleImgError = (idx: number) => {
-    setErrored(prev => new Set(prev).add(idx));
+    // Se já está marcado como erro, não faz nada
+    if (errored.has(idx)) return;
+    // Se já tentou 2 vezes, marca como erro
+    if ((retries[idx] || 0) >= 2) {
+      setErrored(prevErr => new Set(prevErr).add(idx));
+      return;
+    }
+    // Tenta recarregar
+    setRetries(prev => ({ ...prev, [idx]: (prev[idx] || 0) + 1 }));
+    const imgEl = document.getElementById(`img-preview-${idx}`) as HTMLImageElement | null;
+    if (imgEl) {
+      imgEl.src = images[idx] + (images[idx].includes('?') ? '&' : '?') + 'retry=' + ((retries[idx] || 0) + 1);
+    }
   };
 
   const selectAll = () => setSelected(new Set(images.map((_: string, i: number) => i)));
@@ -180,10 +210,11 @@ export default function DownloadForm() {
                 ) : (
                   <picture>
                     {img.endsWith('.webp') && (
-                      <source srcSet={img} type="image/webp" />
+                      <source srcSet={`/api/proxy?url=${encodeURIComponent(img)}`} type="image/webp" />
                     )}
                     <img
-                      src={img}
+                      id={`img-preview-${i}`}
+                      src={img.startsWith('data:image') ? img : `/api/proxy?url=${encodeURIComponent(img)}`}
                       alt={`preview-${i}`}
                       className="w-full h-32 object-contain mb-2 bg-zinc-100 dark:bg-zinc-900"
                       onError={() => handleImgError(i)}
