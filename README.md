@@ -21,6 +21,7 @@ Landing page PWA para baixar imagens de redes sociais.
 - Node.js 24
 - Yarn
 
+
 ## Como rodar
 ```bash
 # Instale as dependências
@@ -32,6 +33,11 @@ npm run dev
 # Rode os testes
 npm test
 ```
+
+## Service Worker (PWA)
+O Service Worker (sw.js) é registrado automaticamente apenas em produção. Em ambiente de desenvolvimento (localhost), ele não será registrado para evitar conflitos e erros de escopo.
+
+Se você encontrar problemas de Service Worker, limpe SW antigos em DevTools > Application > Service Workers > Unregister.
 
 ## Estrutura
 - `src/` - Código fonte
