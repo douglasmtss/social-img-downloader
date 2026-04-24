@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 
 import { scrapeImages } from '../../../../scraper/scrape';
-import { scrapeInstagramImages } from '../../../../scraper/scrapeInstagramPlaywright';
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,31 +13,16 @@ export async function POST(req: NextRequest) {
 
     // Força uso do Puppeteer para Facebook
     const isFacebook = url.includes('facebook.com');
-    const isInstagram = url.includes('instagram.com');
+    // Bloqueia scraping de Instagram em produção
+    if (url.includes('instagram.com')) {
+      return NextResponse.json({ error: 'Scraping de Instagram não suportado em produção. Use um servidor próprio.' }, { status: 501 });
+    }
     if (isFacebook || usePuppeteer) {
       try {
         const images = await scrapeImages(url, { username, password });
         return NextResponse.json({ images });
       } catch (err: unknown) {
         let message = 'Erro no scraper headless.';
-        if (
-          typeof err === 'object' &&
-          err !== null &&
-          'message' in err &&
-          typeof (err as { message?: unknown }).message === 'string'
-        ) {
-          message = (err as { message: string }).message;
-        }
-        return NextResponse.json({ error: message }, { status: 500 });
-      }
-    }
-    // Usa Playwright para Instagram
-    if (isInstagram) {
-      try {
-        const images = await scrapeInstagramImages(url);
-        return NextResponse.json({ images });
-      } catch (err: unknown) {
-        let message = 'Erro no scraper Playwright.';
         if (
           typeof err === 'object' &&
           err !== null &&

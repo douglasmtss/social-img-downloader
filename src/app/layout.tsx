@@ -36,7 +36,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <script dangerouslySetInnerHTML={{
-          __html: `if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js'); }); }`,
+          __html: `if (typeof window !== 'undefined' && navigator && 'serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js'); }); }`,
         }} />
       </body>
     </html>
