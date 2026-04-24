@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
         'Cache-Control': 'no-store',
       },
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Proxy error' }, { status: 500 });
   }
 }

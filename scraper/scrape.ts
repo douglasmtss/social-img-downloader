@@ -9,29 +9,30 @@ export async function scrapeImages(
   url: string,
   options: ScrapeOptions = {}
 ): Promise<string[]> {
-    // Fecha modal do Instagram se aparecer (por classe e SVG)
-    try {
-      // Espera o modal aparecer
-      await page.waitForSelector('div[aria-modal="true"][role="dialog"]', { timeout: 8000 });
-      // Tenta clicar no botão de fechar pelo SVG com title="Fechar"
-      const closeBtn = await page.$('div[aria-modal="true"] [role="button"] svg[aria-label="Fechar"], div[aria-modal="true"] [role="button"] svg[title="Fechar"]');
-      if (closeBtn) {
-        await closeBtn.click();
-        await wait(1000);
-      } else {
-        // Alternativa: tenta clicar no primeiro botão role=button dentro do modal
-        const fallbackBtn = await page.$('div[aria-modal="true"] [role="button"]');
-        if (fallbackBtn) {
-          await fallbackBtn.click();
-          await wait(1000);
-        }
-      }
-    } catch {}
   const { username, password } = options;
   // Para debug, pode rodar com headless: false
   const browser = await puppeteer.launch({ headless: false, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+  // Fecha modal do Instagram se aparecer (por classe e SVG)
+  try {
+    // Espera o modal aparecer
+    await page.waitForSelector('div[aria-modal="true"][role="dialog"]', { timeout: 8000 });
+    // Tenta clicar no botão de fechar pelo SVG com title="Fechar"
+    const closeBtn = await page.$('div[aria-modal="true"] [role="button"] svg[aria-label="Fechar"], div[aria-modal="true"] [role="button"] svg[title="Fechar"]');
+    if (closeBtn) {
+      await closeBtn.click();
+      await wait(1000);
+    } else {
+      // Alternativa: tenta clicar no primeiro botão role=button dentro do modal
+      const fallbackBtn = await page.$('div[aria-modal="true"] [role="button"]');
+      if (fallbackBtn) {
+        await fallbackBtn.click();
+        await wait(1000);
+      }
+    }
+  } catch {}
 
   // Simula movimento do mouse para evitar bloqueios de automação
   await page.mouse.move(100, 100);
