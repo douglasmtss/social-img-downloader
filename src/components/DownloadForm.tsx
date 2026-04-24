@@ -22,7 +22,10 @@ async function downloadImage(url: string, filename: string) {
     downloadBlob(url, filename);
     return;
   }
-  const res = await fetch(url);
+  // Se não for base64, baixa via proxy para evitar CORS
+  const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+  const res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error('Erro ao baixar imagem.');
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   downloadBlob(blobUrl, filename);
@@ -83,6 +86,7 @@ export default function DownloadForm() {
   const [success, setSuccess] = useState<string>("");
   const [images, setImages] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [errored, setErrored] = useState<Set<number>>(new Set());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +120,10 @@ export default function DownloadForm() {
       else next.add(idx);
       return next;
     });
+  };
+
+  const handleImgError = (idx: number) => {
+    setErrored(prev => new Set(prev).add(idx));
   };
 
   const selectAll = () => setSelected(new Set(images.map((_: string, i: number) => i)));
@@ -167,12 +175,21 @@ export default function DownloadForm() {
                   className="absolute top-2 left-2 z-10"
                   aria-label="Selecionar imagem"
                 />
-                <img
-                  src={img}
-                  alt={`preview-${i}`}
-                  className="w-full h-32 object-contain mb-2 bg-zinc-100 dark:bg-zinc-900"
-                  onError={e => (e.currentTarget.style.display = 'none')}
-                />
+                {errored.has(i) ? (
+                  <div className="w-full h-32 flex items-center justify-center bg-zinc-100 dark:bg-zinc-900 text-red-500 text-xs mb-2">Erro ao carregar imagem</div>
+                ) : (
+                  <picture>
+                    {img.endsWith('.webp') && (
+                      <source srcSet={img} type="image/webp" />
+                    )}
+                    <img
+                      src={img}
+                      alt={`preview-${i}`}
+                      className="w-full h-32 object-contain mb-2 bg-zinc-100 dark:bg-zinc-900"
+                      onError={() => handleImgError(i)}
+                    />
+                  </picture>
+                )}
                 <span className="text-xs break-all text-blue-700 underline mb-1">{img.slice(0, 60)}{img.length > 60 ? '...' : ''}</span>
                 <button
                   type="button"
